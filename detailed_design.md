@@ -16,7 +16,7 @@
 | `id` | INTEGER | 主キー (AUTOINCREMENT) |
 | `body` | TEXT | 付箋のテキスト内容 |
 | `status` | TEXT | 状態 (`active`: 表示中, `completed`: 完了, `deleted`: 削除済) |
-| `color` | TEXT | 付箋の背景色 (HEXコード, 例: `#FFFFC8`) |
+| `color` | TEXT | 付箋の背景色 (HEXコードまたはrgba、例: `rgba(255,255,200,1.0)`) |
 | `monitor_id` | TEXT | 表示対象のモニター識別子 (例: SCREEN_NAME またはインデックス) |
 | `x` | INTEGER | 配置するX座標 (モニター内相対座標) |
 | `y` | INTEGER | 配置するY座標 (モニター内相対座標) |
@@ -25,7 +25,10 @@
 | `z_index` | INTEGER | 重なり順 |
 | `pinned` | BOOLEAN | 最前面ピン留めフラグ (オーバーレイ表示時) |
 | `priority` | INTEGER | 優先度 (表示順や並び替え用) |
-| `reminder_at` | TEXT | 通知予定日時 (ISO 8601 形式: `YYYY-MM-DD HH:MM:SS`) |
+| `reminder_at` | TEXT | 通知予定日時 (ISO 8601 形式: `YYYY-MM-DDTHH:MM:SS`) |
+| `font_size` | INTEGER | フォントサイズ (px) |
+| `reminder_status` | TEXT | リマインダー通知ステータス (`pending`: 未通知, `notified`: 通知済) |
+| `reminded_at` | TEXT | 実際に通知が送信された実績日時 (ISO 8601 形式) |
 | `created_at` | TEXT | 作成日時 (ISO 8601 形式) |
 | `updated_at` | TEXT | 更新日時 (ISO 8601 形式) |
 
@@ -76,10 +79,10 @@
 
 ### 2.4. リマインダー機能とOS通知
 - **常駐監視**:
-  - `QTimer` を使用して、30秒ごとに SQLite から `reminder_at` が現在時刻以前かつ未通知のアクティブなメモをクエリします。
+  - `QTimer` を使用して、30秒ごとに SQLite から `reminder_at` が現在時刻以前、かつ `reminder_status` が `'pending'` のアクティブなメモをクエリします。
 - **通知の送信**:
   - 該当するメモがあれば、`QSystemTrayIcon.showMessage()` を使って Windows のネイティブ通知バルーンを表示します。
-  - 通知完了後、データベースの `reminder_at` を `NULL` に更新して通知済み状態とします。
+  - 通知完了後、データベース上の `reminder_status` を `'notified'` に更新し、`reminded_at` に実際の通知送信日時のタイムスタンプを記録します。これにより、元の設定時刻を消去せずに履歴（予定日時と通知実績）を保存し続け、後から確認することを可能にします。
 
 ### 2.5. スタートアップ自動起動
 - **設定方式の選択**:

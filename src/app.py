@@ -208,6 +208,7 @@ class StickyNotesApp:
             SELECT * FROM memos 
             WHERE status = 'active' 
               AND reminder_at IS NOT NULL 
+              AND reminder_status = 'pending'
               AND datetime(reminder_at) <= datetime(?)
         """, (now_str,))
         
@@ -225,8 +226,13 @@ class StickyNotesApp:
                     10000 # 10秒表示
                 )
                 
-                # 通知後はリマインダーを解除 (DB更新)
-                cursor.execute("UPDATE memos SET reminder_at = NULL WHERE id = ?", (memo["id"],))
+                # 通知後はリマインダーを'notified'に更新し、実際の通知日時を記録
+                cursor.execute("""
+                    UPDATE memos 
+                    SET reminder_status = 'notified', 
+                        reminded_at = ? 
+                    WHERE id = ?
+                """, (now_str, memo["id"]))
                 
             conn.commit()
             

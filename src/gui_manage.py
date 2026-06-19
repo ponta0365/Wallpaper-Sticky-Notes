@@ -216,7 +216,26 @@ class ManageTab(QWidget):
             if len(body_preview) > 30:
                 body_preview = body_preview[:30] + "..."
                 
-            reminder_str = f"🕐{memo['reminder_at'][-8:-3]}" if memo.get("reminder_at") else ""
+            # リマインダー情報の構築
+            reminder_str = ""
+            if memo.get("reminder_at"):
+                try:
+                    t_idx = memo['reminder_at'].find('T')
+                    time_part = memo['reminder_at'][t_idx+1:t_idx+6] if t_idx != -1 else memo['reminder_at'][-8:-3]
+                except Exception:
+                    time_part = memo['reminder_at']
+                
+                if memo.get("reminder_status") == "notified":
+                    notified_time = ""
+                    if memo.get("reminded_at"):
+                        try:
+                            rt_idx = memo['reminded_at'].find('T')
+                            notified_time = memo['reminded_at'][rt_idx+1:rt_idx+6] if rt_idx != -1 else memo['reminded_at'][-8:-3]
+                        except Exception:
+                            notified_time = memo['reminded_at']
+                    reminder_str = f"🕐[通知済: {time_part} (実績:{notified_time})]"
+                else:
+                    reminder_str = f"🕐[予定: {time_part}]"
             
             item_text = f"{status_symbol} {body_preview}  {reminder_str} (Monitor: {memo['monitor_id']})"
             item = QListWidgetItem(item_text)

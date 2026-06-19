@@ -332,7 +332,8 @@ class StickyNoteWidget(QWidget):
     def update_content(self):
         """テキストラベルとフッター（時刻ボタン）の更新。"""
         body = self.memo_data["body"]
-        reminder = self.memo_data.get("reminder_at")
+        # reminder_status が 'pending' の場合のみ通知予定日時を表示
+        reminder = self.memo_data.get("reminder_at") if self.memo_data.get("reminder_status") == "pending" else None
         
         self.text_label.setText(body)
         self.editor.setPlainText(body)
@@ -728,12 +729,16 @@ class StickyNoteWidget(QWidget):
         if result == QDialog.Accepted:
             dt_str = dialog.get_datetime_str()
             self.memo_data["reminder_at"] = dt_str
-            db.update_memo(self.memo_data["id"], reminder_at=dt_str)
+            self.memo_data["reminder_status"] = "pending"
+            self.memo_data["reminded_at"] = None
+            db.update_memo(self.memo_data["id"], reminder_at=dt_str, reminder_status="pending", reminded_at=None)
             self.update_content()
             self.data_changed.emit()
         elif result == 2:  # 解除
             self.memo_data["reminder_at"] = None
-            db.update_memo(self.memo_data["id"], reminder_at=None)
+            self.memo_data["reminder_status"] = "pending"
+            self.memo_data["reminded_at"] = None
+            db.update_memo(self.memo_data["id"], reminder_at=None, reminder_status="pending", reminded_at=None)
             self.update_content()
             self.data_changed.emit()
 

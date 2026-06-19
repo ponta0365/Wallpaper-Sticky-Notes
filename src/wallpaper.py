@@ -460,10 +460,11 @@ def render_and_apply_wallpaper():
             w = int(memo["width"] * dpi)
             h = int(memo["height"] * dpi)
             
+            rem_at = memo.get("reminder_at") if memo.get("reminder_status") == "pending" else None
             draw_sticky_note(
                 overlay, x, y, w, h,
                 memo["body"], memo["color"], dpi,
-                reminder_at=memo.get("reminder_at"),
+                reminder_at=rem_at,
                 font_size=memo.get("font_size", 12)
             )
             
