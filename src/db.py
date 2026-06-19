@@ -34,10 +34,20 @@ def init_db():
         pinned BOOLEAN NOT NULL DEFAULT 0,
         priority INTEGER NOT NULL DEFAULT 0,
         reminder_at TEXT,
+        font_size INTEGER NOT NULL DEFAULT 12,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
     """)
+    
+    # 既存のDBにカラムがない場合のマイグレーション
+    try:
+        cursor.execute("SELECT font_size FROM memos LIMIT 1")
+    except sqlite3.OperationalError:
+        try:
+            cursor.execute("ALTER TABLE memos ADD COLUMN font_size INTEGER NOT NULL DEFAULT 12")
+        except Exception as e:
+            print("Migration warning (font_size):", e)
     
     # settings テーブルの作成
     cursor.execute("""
@@ -177,7 +187,7 @@ def get_next_position(monitor_id="0", default_x=100, default_y=100, width=200, h
                     
     return x, y
 
-def add_memo(body, color="#FFFFC8", monitor_id="0", x=None, y=None, width=200, height=200, reminder_at=None):
+def add_memo(body, color="#FFFFC8", monitor_id="0", x=None, y=None, width=200, height=200, reminder_at=None, font_size=12):
     """新規メモを追加します。"""
     if x is None or y is None:
         calc_x, calc_y = get_next_position(monitor_id, default_x=100, default_y=100, width=width, height=height)
@@ -188,9 +198,9 @@ def add_memo(body, color="#FFFFC8", monitor_id="0", x=None, y=None, width=200, h
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute("""
-    INSERT INTO memos (body, color, monitor_id, x, y, width, height, reminder_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (body, color, str(monitor_id), x, y, width, height, reminder_at, now, now))
+    INSERT INTO memos (body, color, monitor_id, x, y, width, height, reminder_at, font_size, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (body, color, str(monitor_id), x, y, width, height, reminder_at, font_size, now, now))
     memo_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -282,7 +292,7 @@ def export_data(file_path):
     cursor = conn.cursor()
     
     # memos の取得 (idやcreated_atなどはインポート時に再生成されるため除外)
-    cursor.execute("SELECT body, color, monitor_id, x, y, width, height, reminder_at FROM memos WHERE status = 'active'")
+    cursor.execute("SELECT body, color, monitor_id, x, y, width, height, reminder_at, font_size FROM memos WHERE status = 'active'")
     memos = [dict(row) for row in cursor.fetchall()]
     
     # settings の取得 (base_wallpaper_path などの環境固有設定は除外)
@@ -322,13 +332,13 @@ def import_data(file_path, mode="append"):
         # memos の挿入
         for m in memos:
             cursor.execute("""
-            INSERT INTO memos (body, color, monitor_id, x, y, width, height, reminder_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memos (body, color, monitor_id, x, y, width, height, reminder_at, font_size, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 m["body"], m["color"], str(m.get("monitor_id", "0")),
                 m.get("x", 100), m.get("y", 100),
                 m.get("width", 200), m.get("height", 150),
-                m.get("reminder_at"), now, now
+                m.get("reminder_at"), m.get("font_size", 12), now, now
             ))
             
         # settings の反映

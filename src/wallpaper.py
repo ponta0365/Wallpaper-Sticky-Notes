@@ -149,45 +149,74 @@ def get_system_font(size):
                 continue
     return ImageFont.load_default()
 
-def draw_sticky_note(draw, x, y, w, h, body, bg_color, dpi_scale, reminder_at=None):
-    """画像上に付箋を描画します。"""
+def parse_color_string(color_str):
+    """'#RRGGBB' または 'rgba(r,g,b,a)' 形式の色文字列を (r, g, b, a) タプルに変換します。"""
+    import re
+    color_str = color_str.strip()
+    if color_str.startswith("#"):
+        hex_color = color_str.lstrip('#')
+        if len(hex_color) == 6:
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+            a = 255
+            return r, g, b, a
+        elif len(hex_color) == 8:
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+            a = int(hex_color[6:8], 16)
+            return r, g, b, a
+    elif color_str.startswith("rgba"):
+        m = re.match(r"rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d\.]+)\s*\)", color_str)
+        if m:
+            r = int(m.group(1))
+            g = int(m.group(2))
+            b = int(m.group(3))
+            a = int(float(m.group(4)) * 255)
+            return r, g, b, a
+    return 255, 255, 200, 255
+
+def draw_sticky_note(overlay_img, x, y, w, h, body, bg_color, dpi_scale, reminder_at=None, font_size=12):
+    """画像上に付箋を描画します（アルファブレンド対応）。"""
     shadow_offset = int(4 * dpi_scale)
     shadow_color = (0, 0, 0, 40)
     radius = int(8 * dpi_scale)
     
-    # 1. 影
+    # 影と付箋が収まるテンポラリイメージを作成
+    note_w = w + shadow_offset
+    note_h = h + shadow_offset
+    note_img = Image.new("RGBA", (note_w, note_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(note_img)
+    
+    # 1. 影 (ローカル座標)
     draw.rounded_rectangle(
-        [x + shadow_offset, y + shadow_offset, x + w + shadow_offset, y + h + shadow_offset],
+        [shadow_offset, shadow_offset, w, h],
         radius=radius, fill=shadow_color
     )
     
-    # 2. 本体
-    hex_color = bg_color.lstrip('#')
-    if len(hex_color) == 6:
-        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-    else:
-        r, g, b = 255, 255, 200
-        
+    # 2. 本体色パース
+    r, g, b, a = parse_color_string(bg_color)
     draw.rounded_rectangle(
-        [x, y, x + w, y + h],
-        radius=radius, fill=(r, g, b, 255)
+        [0, 0, w, h],
+        radius=radius, fill=(r, g, b, a)
     )
     
     # 3. ヘッダーバー
     hr, hg, hb = max(0, r - 30), max(0, g - 30), max(0, b - 30)
     bar_height = int(12 * dpi_scale)
     draw.rounded_rectangle(
-        [x, y, x + w, y + bar_height],
-        radius=radius, fill=(hr, hg, hb, 255)
+        [0, 0, w, bar_height],
+        radius=radius, fill=(hr, hg, hb, a)
     )
     draw.rectangle(
-        [x, y + bar_height - radius, x + w, y + bar_height],
-        fill=(hr, hg, hb, 255)
+        [0, bar_height - radius, w, bar_height],
+        fill=(hr, hg, hb, a)
     )
     
     # 4. テキスト
-    font_size = int(14 * dpi_scale)
-    font = get_system_font(font_size)
+    scaled_font_size = int(font_size * dpi_scale)
+    font = get_system_font(scaled_font_size)
     
     # 輝度を計算してテキスト色とリマインダーの色を自動反転
     luminance = 0.299 * r + 0.587 * g + 0.114 * b
@@ -199,10 +228,11 @@ def draw_sticky_note(draw, x, y, w, h, body, bg_color, dpi_scale, reminder_at=No
         bell_color = (120, 120, 120, 255)
     
     padding = int(12 * dpi_scale)
-    text_x = x + padding
-    text_y = y + bar_height + padding
+    text_x = padding
+    text_y = bar_height + padding
     max_width = w - (padding * 2)
     
+    # 自動改行とレイアウト
     lines = []
     paragraphs = body.split('\n')
     for paragraph in paragraphs:
@@ -221,7 +251,7 @@ def draw_sticky_note(draw, x, y, w, h, body, bg_color, dpi_scale, reminder_at=No
     line_spacing = int(4 * dpi_scale)
     curr_y = text_y
     for line in lines:
-        if curr_y + font_size > y + h - padding:
+        if curr_y + scaled_font_size > h - padding:
             draw.text((text_x, curr_y - line_spacing), "...", fill=text_color, font=font)
             break
         draw.text((text_x, curr_y), line, fill=text_color, font=font)
@@ -236,7 +266,11 @@ def draw_sticky_note(draw, x, y, w, h, body, bg_color, dpi_scale, reminder_at=No
         except ValueError:
             time_part = reminder_at
         text_w = draw.textbbox((0, 0), f"rem: {time_part}", font=bell_font)[2]
-        draw.text((x + w - text_w - padding, y + h - int(15 * dpi_scale) - padding // 2), f"rem: {time_part}", fill=bell_color, font=bell_font)
+        draw.text((w - text_w - padding, h - int(15 * dpi_scale) - padding // 2), f"rem: {time_part}", fill=bell_color, font=bell_font)
+
+    # 6. オーバーレイキャンバスにアルファ合成
+    overlay_img.alpha_composite(note_img, (x, y))
+
 
 def render_and_apply_wallpaper():
     """マルチモニターをまたぐ巨大な1枚の画像を生成し、スパンモードで壁紙に適用します。"""
@@ -427,9 +461,10 @@ def render_and_apply_wallpaper():
             h = int(memo["height"] * dpi)
             
             draw_sticky_note(
-                draw, x, y, w, h,
+                overlay, x, y, w, h,
                 memo["body"], memo["color"], dpi,
-                reminder_at=memo.get("reminder_at")
+                reminder_at=memo.get("reminder_at"),
+                font_size=memo.get("font_size", 12)
             )
             
     # 合成

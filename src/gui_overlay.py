@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 import src.db as db
 import ctypes
 from ctypes import wintypes
+from src.wallpaper import parse_color_string
 
 GWL_EXSTYLE = -20
 WS_EX_TRANSPARENT = 0x00000020
@@ -179,7 +180,8 @@ class StickyNoteWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         # テキストの長さに合わせてサイズを自動計算し強制適用
-        w, h = calculate_auto_size(self.memo_data["body"])
+        font_sz = self.memo_data.get("font_size", 12)
+        w, h = calculate_auto_size(self.memo_data["body"], font_size=font_sz)
         self.memo_data["width"] = w
         self.memo_data["height"] = h
         db.update_memo(self.memo_data["id"], width=w, height=h)
@@ -276,11 +278,10 @@ class StickyNoteWidget(QWidget):
     def update_style(self):
         """付箋の背景色とヘッダーの色を設定します。"""
         bg_hex = self.memo_data["color"]
-        # HEXをQColorに変換
-        bg_color = QColor(bg_hex)
+        r, g, b, a = parse_color_string(bg_hex)
+        a_f = a / 255.0
         
         # 輝度を計算してテキスト色を自動反転 (明るい背景なら黒文字、暗い背景なら白文字)
-        r, g, b = bg_color.red(), bg_color.green(), bg_color.blue()
         luminance = 0.299 * r + 0.587 * g + 0.114 * b
         if luminance < 140:
             text_color_hex = "#F1F1F1"
@@ -288,26 +289,25 @@ class StickyNoteWidget(QWidget):
             text_color_hex = "#1E1E1E"
         
         # ヘッダーは背景色より少し暗くする
-        header_color = QColor(
-            max(0, bg_color.red() - 30),
-            max(0, bg_color.green() - 30),
-            max(0, bg_color.blue() - 30)
-        )
+        hr, hg, hb = max(0, r - 30), max(0, g - 30), max(0, b - 30)
+        
+        # 文字サイズを取得
+        font_sz = self.memo_data.get("font_size", 12)
         
         # QWidgetの背景色設定 (スタイルシート)
         self.setStyleSheet(f"""
             StickyNoteWidget {{
-                background-color: {bg_color.name()};
+                background-color: rgba({r}, {g}, {b}, {a_f});
                 border-radius: 8px;
             }}
             QLabel {{
                 font-family: "Segoe UI", "Meiryo";
-                font-size: 13px;
+                font-size: {font_sz}px;
                 color: {text_color_hex};
             }}
         """)
         
-        self.text_label.setStyleSheet(f"padding: 6px 8px; color: {text_color_hex};")
+        self.text_label.setStyleSheet(f"padding: 6px 8px; color: {text_color_hex}; font-size: {font_sz}px;")
         
         # エディタの文字色も合わせる
         self.editor.setStyleSheet(f"""
@@ -316,14 +316,14 @@ class StickyNoteWidget(QWidget):
                 border: none;
                 color: {text_color_hex};
                 font-family: "Segoe UI", "Meiryo";
-                font-size: 13px;
+                font-size: {font_sz}px;
                 padding: 6px 8px;
             }}
         """)
         
         self.header_bar.setStyleSheet(f"""
             QWidget {{
-                background-color: {header_color.name()};
+                background-color: rgba({hr}, {hg}, {hb}, {a_f});
                 border-top-left-radius: 8px;
                 border-top-right-radius: 8px;
             }}
@@ -339,8 +339,7 @@ class StickyNoteWidget(QWidget):
         
         # 輝度を計算してボタンの色を最適化
         bg_hex = self.memo_data["color"]
-        bg_color = QColor(bg_hex)
-        r, g, b = bg_color.red(), bg_color.green(), bg_color.blue()
+        r, g, b, _ = parse_color_string(bg_hex)
         luminance = 0.299 * r + 0.587 * g + 0.114 * b
         
         # 時刻ボタンの表示変更
@@ -553,7 +552,8 @@ class StickyNoteWidget(QWidget):
                 self.memo_data["body"] = new_body
                 
                 # テキストの長さに合わせた自動サイズ計算と反映
-                w, h = calculate_auto_size(new_body)
+                font_sz = self.memo_data.get("font_size", 12)
+                w, h = calculate_auto_size(new_body, font_size=font_sz)
                 self.memo_data["width"] = w
                 self.memo_data["height"] = h
                 self.resize(w, h)
@@ -627,9 +627,45 @@ class StickyNoteWidget(QWidget):
         edit_action.triggered.connect(self.start_edit)
         menu.addAction(edit_action)
 
-        color_action = QAction("背景色を変更...", self)
-        color_action.triggered.connect(self.change_color)
-        menu.addAction(color_action)
+        # 背景色を変更サブメニュー (プリセット対応)
+        color_menu = menu.addMenu("背景色を変更")
+        color_menu.setStyleSheet(menu.styleSheet())
+        
+        presets = [
+            ("薄黄色", "rgba(255, 255, 200, 1.0)"),
+            ("濃い黄色", "rgba(255, 215, 0, 1.0)"),
+            ("水色", "rgba(224, 247, 250, 1.0)"),
+            ("ピンク", "rgba(252, 228, 236, 1.0)"),
+            ("黒半透明", "rgba(30, 30, 30, 0.65)"),
+            ("白半透明", "rgba(255, 255, 255, 0.65)"),
+            ("高コントラスト", "rgba(0, 0, 0, 1.0)")
+        ]
+        
+        for name, val in presets:
+            act = QAction(name, self)
+            act.triggered.connect(lambda checked=False, v=val: self.apply_preset_color(v))
+            color_menu.addAction(act)
+            
+        color_menu.addSeparator()
+        custom_color_act = QAction("カスタムカラー...", self)
+        custom_color_act.triggered.connect(self.change_color)
+        color_menu.addAction(custom_color_act)
+
+        # 文字サイズを変更サブメニュー
+        size_menu = menu.addMenu("文字サイズを変更")
+        size_menu.setStyleSheet(menu.styleSheet())
+        
+        sizes = [
+            ("小 (10px)", 10),
+            ("標準 (12px)", 12),
+            ("中 (15px)", 15),
+            ("大 (18px)", 18),
+            ("特大 (22px)", 22)
+        ]
+        for name, size_val in sizes:
+            act = QAction(name, self)
+            act.triggered.connect(lambda checked=False, s=size_val: self.apply_font_size(s))
+            size_menu.addAction(act)
 
         reminder_action = QAction("リマインダー設定...", self)
         reminder_action.triggered.connect(self.set_reminder)
@@ -647,14 +683,40 @@ class StickyNoteWidget(QWidget):
 
         menu.exec(event.globalPos())
 
+    def apply_preset_color(self, color_str):
+        self.memo_data["color"] = color_str
+        db.update_memo(self.memo_data["id"], color=color_str)
+        self.update_style()
+        self.data_changed.emit()
+
+    def apply_font_size(self, size_val):
+        self.memo_data["font_size"] = size_val
+        
+        # 文字サイズの変更に合わせて付箋サイズを自動再計算してリサイズする
+        w, h = calculate_auto_size(self.memo_data["body"], font_size=size_val)
+        self.memo_data["width"] = w
+        self.memo_data["height"] = h
+        self.resize(w, h)
+        
+        db.update_memo(self.memo_data["id"], font_size=size_val, width=w, height=h)
+        self.update_style()
+        self.data_changed.emit()
+        
+        # サイズが変わったのでマスク領域を更新させる
+        if hasattr(self.parentWidget(), "update_mask"):
+            self.parentWidget().update_mask()
+
     def change_color(self):
-        # 標準カラーダイアログ
-        current_color = QColor(self.memo_data["color"])
-        color = QColorDialog.getColor(current_color, self, "背景色を選択")
+        # 標準カラーダイアログ (アルファチャンネルを有効にする)
+        bg_hex = self.memo_data["color"]
+        r, g, b, a = parse_color_string(bg_hex)
+        current_color = QColor(r, g, b, a)
+        color = QColorDialog.getColor(current_color, self, "背景色を選択", QColorDialog.ShowAlphaChannel)
         if color.isValid():
-            hex_color = color.name()
-            self.memo_data["color"] = hex_color
-            db.update_memo(self.memo_data["id"], color=hex_color)
+            # アルファ値も含めて rgba 表記で保存する
+            rgba_str = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha() / 255.0})"
+            self.memo_data["color"] = rgba_str
+            db.update_memo(self.memo_data["id"], color=rgba_str)
             self.update_style()
             self.data_changed.emit()
 
