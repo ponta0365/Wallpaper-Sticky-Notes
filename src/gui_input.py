@@ -1,4 +1,5 @@
 import sys
+import ctypes
 from PySide6.QtCore import Qt, Signal, QSize, QDateTime
 from PySide6.QtGui import QColor, QFont, QPalette, QBrush, QPainter, QCursor
 from PySide6.QtWidgets import (
@@ -6,6 +7,30 @@ from PySide6.QtWidgets import (
     QLabel, QGraphicsDropShadowEffect, QPlainTextEdit, QDialog
 )
 from src.gui_overlay import ReminderDialog
+
+def is_ime_composing():
+    """現在Windows上でIMEが変換中（未確定文字列あり）か判定します。"""
+    try:
+        user32 = ctypes.windll.user32
+        imm32 = ctypes.windll.imm32
+        
+        hwnd = user32.GetFocus()
+        if not hwnd:
+            hwnd = user32.GetActiveWindow()
+        if not hwnd:
+            return False
+            
+        himc = imm32.ImmGetContext(hwnd)
+        if not himc:
+            return False
+            
+        # GCS_COMPSTR = 0x0008
+        length = imm32.ImmGetCompositionStringW(himc, 0x0008, None, 0)
+        imm32.ImmReleaseContext(hwnd, himc)
+        
+        return length > 0
+    except Exception:
+        return False
 
 class SafeTextEdit(QPlainTextEdit):
     """IMEの変換決定と送信処理をスマートに両立させるカスタムテキストエディット。"""
@@ -37,9 +62,8 @@ class SafeTextEdit(QPlainTextEdit):
                 super().keyPressEvent(event)
                 return
             
-            # IMEの変換候補ウィンドウが表示されている場合は、候補の選択・確定のみを優先し、送信しない
-            input_method = QApplication.inputMethod()
-            if input_method.isVisible():
+            # IMEの未確定テキスト（変換中）がある場合は、変換確定を優先し、決定処理（送信）を行わない
+            if is_ime_composing():
                 super().keyPressEvent(event)
                 return
                 
@@ -221,6 +245,9 @@ class QuickInputWindow(QWidget):
                     background-color: rgba(255, 255, 255, 30);
                 }
             """)
+
+        # ダイアログを閉じた後に、テキストエディットに入力フォーカスを戻す
+        self.text_edit.setFocus()
 
     def showEvent(self, event):
         """表示される際に、アクティブな画面の中央に配置します。"""
