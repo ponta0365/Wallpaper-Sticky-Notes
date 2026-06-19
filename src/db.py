@@ -238,17 +238,16 @@ def update_memo(memo_id, **kwargs):
     conn.close()
 
 def get_active_memos():
-    """表示中(active)のメモをすべて取得します（未来の保留中リマインダーを除く）。"""
+    """表示中(active)のメモをすべて取得します（期限切れの予定を除く）。"""
     conn = get_db_connection()
     cursor = conn.cursor()
     now_str = datetime.now().isoformat()
-    # status が 'active' であり、かつ未来のリマインダー待ちでないものを取得する
+    # status が 'active' であり、かつ（reminder_at が未設定、または未来の時刻である）ものを取得する
     cursor.execute("""
         SELECT * FROM memos 
         WHERE status = 'active'
           AND (reminder_at IS NULL 
-               OR reminder_status != 'pending' 
-               OR datetime(reminder_at) <= datetime(?))
+               OR datetime(reminder_at) > datetime(?))
         ORDER BY z_index ASC, id ASC
     """, (now_str,))
     memos = [dict(row) for row in cursor.fetchall()]

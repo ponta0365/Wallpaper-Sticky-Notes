@@ -241,20 +241,21 @@ class ManageTab(QWidget):
         now = datetime.now()
         
         for memo in memos:
-            # スヌーズ状態の判定
-            is_snoozed = False
-            if memo["status"] == "active" and memo.get("reminder_at") and memo.get("reminder_status") == "pending":
+            # 期限切れによる非表示判定
+            is_expired = False
+            if memo["status"] == "active" and memo.get("reminder_at"):
                 try:
                     rem_dt = datetime.fromisoformat(memo["reminder_at"])
-                    if rem_dt > now:
-                        is_snoozed = True
+                    if rem_dt <= now:
+                        is_expired = True
                 except Exception:
                     pass
             
-            if is_snoozed:
-                status_symbol = "💤 [スヌーズ]"
-            elif memo["status"] == "active":
-                status_symbol = "🟢 [表示中]"
+            if memo["status"] == "active":
+                if is_expired:
+                    status_symbol = "👁️ [期限切非表示]"
+                else:
+                    status_symbol = "🟢 [表示中]"
             elif memo["status"] == "hidden":
                 status_symbol = "👁️ [非表示]"
             elif memo["status"] == "completed":
@@ -288,12 +289,12 @@ class ManageTab(QWidget):
                             notified_time = reminded_dt.strftime("%m/%d %H:%M")
                         except Exception:
                             notified_time = memo['reminded_at']
-                    reminder_str = f"🕐[通知済: {time_part} (実績:{notified_time})]"
+                    reminder_str = f"🕐[期限切(通知済): {time_part} (実績:{notified_time})]"
                 else:
-                    if is_snoozed:
-                        reminder_str = f"🕐[スヌーズ中: {time_part}]"
+                    if is_expired:
+                        reminder_str = f"🕐[期限切(未通知): {time_part}]"
                     else:
-                        reminder_str = f"🕐[予定: {time_part}]"
+                        reminder_str = f"🕐[期限: {time_part}]"
             
             item_text = f"{status_symbol} {body_preview}  {reminder_str} (Monitor: {memo['monitor_id']})"
             item = QListWidgetItem(item_text)
@@ -301,8 +302,8 @@ class ManageTab(QWidget):
             item.setData(Qt.UserRole, memo["id"])
             
             # ステータスごとに文字色をうっすら変えて視認性を上げる
-            if is_snoozed:
-                item.setForeground(QColor("#007ACC"))
+            if is_expired:
+                item.setForeground(QColor("#A0A0A0"))
             elif memo["status"] == "completed":
                 item.setForeground(QColor("#777777"))
             elif memo["status"] == "hidden":
@@ -396,7 +397,7 @@ class ManageTab(QWidget):
             hide_act = menu.addAction("👁️ 一時非表示にする")
             hide_act.triggered.connect(lambda: self.update_memo_status(memo_id, "hidden"))
             
-        snooze_act = menu.addAction("💤 明日に送る（午前9時に再表示）")
+        snooze_act = menu.addAction("💤 明日9時まで表示（以降非表示）")
         snooze_act.triggered.connect(lambda: self.snooze_to_tomorrow(memo_id))
 
         if status != "completed":

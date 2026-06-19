@@ -682,7 +682,7 @@ class StickyNoteWidget(QWidget):
         hide_action.triggered.connect(self.hide_note)
         menu.addAction(hide_action)
 
-        snooze_action = QAction("明日に送る (9:00に再表示)", self)
+        snooze_action = QAction("明日の9:00まで表示 (以降非表示)", self)
         snooze_action.triggered.connect(self.snooze_to_tomorrow)
         menu.addAction(snooze_action)
 
