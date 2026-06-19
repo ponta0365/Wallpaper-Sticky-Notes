@@ -238,19 +238,48 @@ def update_memo(memo_id, **kwargs):
     conn.close()
 
 def get_active_memos():
-    """表示中(active)のメモをすべて取得します。"""
+    """表示中(active)のメモをすべて取得します（未来の保留中リマインダーを除く）。"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM memos WHERE status = 'active' ORDER BY z_index ASC, id ASC")
+    now_str = datetime.now().isoformat()
+    # status が 'active' であり、かつ未来のリマインダー待ちでないものを取得する
+    cursor.execute("""
+        SELECT * FROM memos 
+        WHERE status = 'active'
+          AND (reminder_at IS NULL 
+               OR reminder_status != 'pending' 
+               OR datetime(reminder_at) <= datetime(?))
+        ORDER BY z_index ASC, id ASC
+    """, (now_str,))
     memos = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return memos
 
-def get_all_memos():
-    """すべてのメモを取得します（管理画面用）。"""
+def get_all_memos(status_filter="all"):
+    """指定されたステータスフィルターに一致するメモを取得します（管理画面用）。"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM memos ORDER BY status ASC, created_at DESC")
+    
+    if status_filter == "active":
+        query = "SELECT * FROM memos WHERE status = 'active' ORDER BY created_at DESC"
+        params = ()
+    elif status_filter == "hidden":
+        query = "SELECT * FROM memos WHERE status = 'hidden' ORDER BY created_at DESC"
+        params = ()
+    elif status_filter == "completed":
+        query = "SELECT * FROM memos WHERE status = 'completed' ORDER BY created_at DESC"
+        params = ()
+    elif status_filter == "archived":
+        query = "SELECT * FROM memos WHERE status = 'archived' ORDER BY created_at DESC"
+        params = ()
+    elif status_filter == "deleted":
+        query = "SELECT * FROM memos WHERE status = 'deleted' ORDER BY created_at DESC"
+        params = ()
+    else:  # "all"
+        query = "SELECT * FROM memos WHERE status != 'deleted' ORDER BY status ASC, created_at DESC"
+        params = ()
+        
+    cursor.execute(query, params)
     memos = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return memos

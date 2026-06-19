@@ -678,6 +678,20 @@ class StickyNoteWidget(QWidget):
         complete_action.triggered.connect(self.complete_note)
         menu.addAction(complete_action)
 
+        hide_action = QAction("一時非表示にする", self)
+        hide_action.triggered.connect(self.hide_note)
+        menu.addAction(hide_action)
+
+        snooze_action = QAction("明日に送る (9:00に再表示)", self)
+        snooze_action.triggered.connect(self.snooze_to_tomorrow)
+        menu.addAction(snooze_action)
+
+        archive_action = QAction("アーカイブする", self)
+        archive_action.triggered.connect(self.archive_note)
+        menu.addAction(archive_action)
+
+        menu.addSeparator()
+
         delete_action = QAction("削除", self)
         delete_action.triggered.connect(self.delete_note)
         menu.addAction(delete_action)
@@ -744,6 +758,23 @@ class StickyNoteWidget(QWidget):
 
     def complete_note(self):
         db.update_memo(self.memo_data["id"], status="completed")
+        self.data_changed.emit()
+        self.close()
+
+    def hide_note(self):
+        db.update_memo(self.memo_data["id"], status="hidden")
+        self.data_changed.emit()
+        self.close()
+
+    def snooze_to_tomorrow(self):
+        from datetime import datetime, timedelta
+        tomorrow_9am = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+        db.update_memo(self.memo_data["id"], status="active", reminder_at=tomorrow_9am.isoformat(), reminder_status="pending", reminded_at=None)
+        self.data_changed.emit()
+        self.close()
+
+    def archive_note(self):
+        db.update_memo(self.memo_data["id"], status="archived")
         self.data_changed.emit()
         self.close()
 

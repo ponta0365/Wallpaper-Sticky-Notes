@@ -172,6 +172,20 @@ class ManageTab(QWidget):
         
         action_layout.addStretch()
         
+        # フィルター用コンボボックス
+        self.filter_label = QLabel("表示切替:", self)
+        action_layout.addWidget(self.filter_label)
+        self.filter_combo = QComboBox(self)
+        self.filter_combo.addItems([
+            "すべて",
+            "表示中のみ",
+            "一時非表示のみ",
+            "完了のみ",
+            "アーカイブのみ"
+        ])
+        self.filter_combo.currentIndexChanged.connect(self.load_data)
+        action_layout.addWidget(self.filter_combo)
+        
         self.refresh_btn = QPushButton("再読込", self)
         self.refresh_btn.clicked.connect(self.load_data)
         action_layout.addWidget(self.refresh_btn)
@@ -181,6 +195,11 @@ class ManageTab(QWidget):
         # メトリスト表示
         self.list_widget = QListWidget(self)
         self.list_widget.itemDoubleClicked.connect(self.edit_memo)
+        
+        # 右クリックコンテキストメニュー設定
+        self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
+        
         layout.addWidget(self.list_widget)
 
         # 下部操作エリア
@@ -206,10 +225,46 @@ class ManageTab(QWidget):
 
     def load_data(self):
         self.list_widget.clear()
-        memos = db.get_all_memos()
+        
+        idx = self.filter_combo.currentIndex()
+        filter_map = {
+            0: "all",
+            1: "active",
+            2: "hidden",
+            3: "completed",
+            4: "archived"
+        }
+        status_filter = filter_map.get(idx, "all")
+        memos = db.get_all_memos(status_filter)
+        
+        from datetime import datetime
+        now = datetime.now()
         
         for memo in memos:
-            status_symbol = "🟢 [表示中]" if memo["status"] == "active" else "⚪ [完了]" if memo["status"] == "completed" else "🔴 [削除済]"
+            # スヌーズ状態の判定
+            is_snoozed = False
+            if memo["status"] == "active" and memo.get("reminder_at") and memo.get("reminder_status") == "pending":
+                try:
+                    rem_dt = datetime.fromisoformat(memo["reminder_at"])
+                    if rem_dt > now:
+                        is_snoozed = True
+                except Exception:
+                    pass
+            
+            if is_snoozed:
+                status_symbol = "💤 [スヌーズ]"
+            elif memo["status"] == "active":
+                status_symbol = "🟢 [表示中]"
+            elif memo["status"] == "hidden":
+                status_symbol = "👁️ [非表示]"
+            elif memo["status"] == "completed":
+                status_symbol = "⚪ [完了]"
+            elif memo["status"] == "archived":
+                status_symbol = "📦 [アーカイブ]"
+            elif memo["status"] == "deleted":
+                status_symbol = "🔴 [削除済]"
+            else:
+                status_symbol = f"❓ [{memo['status']}]"
             
             # メモのプレビュー
             body_preview = memo["body"].replace("\n", " ")
@@ -220,8 +275,8 @@ class ManageTab(QWidget):
             reminder_str = ""
             if memo.get("reminder_at"):
                 try:
-                    t_idx = memo['reminder_at'].find('T')
-                    time_part = memo['reminder_at'][t_idx+1:t_idx+6] if t_idx != -1 else memo['reminder_at'][-8:-3]
+                    rem_dt = datetime.fromisoformat(memo["reminder_at"])
+                    time_part = rem_dt.strftime("%m/%d %H:%M")
                 except Exception:
                     time_part = memo['reminder_at']
                 
@@ -229,22 +284,31 @@ class ManageTab(QWidget):
                     notified_time = ""
                     if memo.get("reminded_at"):
                         try:
-                            rt_idx = memo['reminded_at'].find('T')
-                            notified_time = memo['reminded_at'][rt_idx+1:rt_idx+6] if rt_idx != -1 else memo['reminded_at'][-8:-3]
+                            reminded_dt = datetime.fromisoformat(memo["reminded_at"])
+                            notified_time = reminded_dt.strftime("%m/%d %H:%M")
                         except Exception:
                             notified_time = memo['reminded_at']
                     reminder_str = f"🕐[通知済: {time_part} (実績:{notified_time})]"
                 else:
-                    reminder_str = f"🕐[予定: {time_part}]"
+                    if is_snoozed:
+                        reminder_str = f"🕐[スヌーズ中: {time_part}]"
+                    else:
+                        reminder_str = f"🕐[予定: {time_part}]"
             
             item_text = f"{status_symbol} {body_preview}  {reminder_str} (Monitor: {memo['monitor_id']})"
             item = QListWidgetItem(item_text)
             # メモIDをカスタムデータとして保持
             item.setData(Qt.UserRole, memo["id"])
             
-            # ステータスごとに背景色をうっすら変えて視認性を上げる
-            if memo["status"] == "completed":
+            # ステータスごとに文字色をうっすら変えて視認性を上げる
+            if is_snoozed:
+                item.setForeground(QColor("#007ACC"))
+            elif memo["status"] == "completed":
                 item.setForeground(QColor("#777777"))
+            elif memo["status"] == "hidden":
+                item.setForeground(QColor("#A0A0A0"))
+            elif memo["status"] == "archived":
+                item.setForeground(QColor("#8A8A8A"))
             elif memo["status"] == "deleted":
                 item.setForeground(QColor("#B33939"))
                 
@@ -286,6 +350,89 @@ class ManageTab(QWidget):
             self.load_data()
             self.data_changed.emit()
 
+    def show_context_menu(self, pos):
+        item = self.list_widget.itemAt(pos)
+        if not item:
+            return
+        memo_id = item.data(Qt.UserRole)
+        
+        # dbから最新のメモ情報を取得
+        conn = db.get_db_connection()
+        memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_id,)).fetchone()
+        conn.close()
+        
+        if not memo:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2D2D30;
+                color: #F1F1F1;
+                border: 1px solid #454545;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 4px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #007ACC;
+            }
+        """)
+
+        edit_act = menu.addAction("編集...")
+        edit_act.triggered.connect(lambda: self.edit_memo(item))
+        menu.addSeparator()
+
+        # ステータス変更のアクション
+        status = memo["status"]
+        
+        if status != "active":
+            show_act = menu.addAction("🟢 表示中（アクティブ）にする")
+            show_act.triggered.connect(lambda: self.update_memo_status(memo_id, "active"))
+            
+        if status != "hidden":
+            hide_act = menu.addAction("👁️ 一時非表示にする")
+            hide_act.triggered.connect(lambda: self.update_memo_status(memo_id, "hidden"))
+            
+        snooze_act = menu.addAction("💤 明日に送る（午前9時に再表示）")
+        snooze_act.triggered.connect(lambda: self.snooze_to_tomorrow(memo_id))
+
+        if status != "completed":
+            complete_act = menu.addAction("⚪ 完了にする")
+            complete_act.triggered.connect(lambda: self.update_memo_status(memo_id, "completed"))
+        else:
+            reactivate_act = menu.addAction("🟢 未完了に戻す")
+            reactivate_act.triggered.connect(lambda: self.update_memo_status(memo_id, "active"))
+
+        if status != "archived":
+            archive_act = menu.addAction("📦 アーカイブする")
+            archive_act.triggered.connect(lambda: self.update_memo_status(memo_id, "archived"))
+
+        menu.addSeparator()
+        delete_act = menu.addAction("❌ 削除")
+        delete_act.triggered.connect(self.delete_memo)
+
+        menu.exec(self.list_widget.mapToGlobal(pos))
+
+    def update_memo_status(self, memo_id, new_status):
+        if new_status == "active":
+            # アクティブにする場合は、スヌーズ等も解除して即座に表示されるようにする
+            db.update_memo(memo_id, status="active", reminder_status="notified")
+        else:
+            db.update_memo(memo_id, status=new_status)
+        self.load_data()
+        self.data_changed.emit()
+
+    def snooze_to_tomorrow(self, memo_id):
+        from datetime import datetime, timedelta
+        # 明日の午前9時
+        tomorrow_9am = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+        db.update_memo(memo_id, status="active", reminder_at=tomorrow_9am.isoformat(), reminder_status="pending", reminded_at=None)
+        self.load_data()
+        self.data_changed.emit()
+
     def toggle_complete(self):
         item = self.list_widget.currentItem()
         if not item:
@@ -299,10 +446,8 @@ class ManageTab(QWidget):
         if not memo:
             return
             
-        new_status = "active" if memo["status"] != "active" else "completed"
-        db.update_memo(memo_id, status=new_status)
-        self.load_data()
-        self.data_changed.emit()
+        new_status = "active" if memo["status"] == "completed" else "completed"
+        self.update_memo_status(memo_id, new_status)
 
     def delete_memo(self):
         item = self.list_widget.currentItem()
