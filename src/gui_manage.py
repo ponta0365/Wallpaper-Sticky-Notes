@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QListWidget, QListWidgetItem, QComboBox,
     QLineEdit, QCheckBox, QFormLayout, QMessageBox, QColorDialog,
-    QInputDialog, QTextEdit, QFileDialog, QGroupBox
+    QInputDialog, QTextEdit, QFileDialog, QGroupBox, QMenu
 )
 import src.db as db
 import src.wallpaper as wp
@@ -194,6 +194,7 @@ class ManageTab(QWidget):
 
         # メトリスト表示
         self.list_widget = QListWidget(self)
+        self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
         self.list_widget.itemDoubleClicked.connect(self.edit_memo)
         
         # 右クリックコンテキストメニュー設定
@@ -216,6 +217,11 @@ class ManageTab(QWidget):
         self.delete_btn = QPushButton("削除", self)
         self.delete_btn.clicked.connect(self.delete_memo)
         btn_layout.addWidget(self.delete_btn)
+
+        self.clear_all_btn = QPushButton("全メモを削除...", self)
+        self.clear_all_btn.setStyleSheet("background-color: #8C2424; color: #F1F1F1; border: 1px solid #A03030;")
+        self.clear_all_btn.clicked.connect(self.clear_all_memos_tab)
+        btn_layout.addWidget(self.clear_all_btn)
         
         btn_layout.addStretch()
         
@@ -355,11 +361,17 @@ class ManageTab(QWidget):
         item = self.list_widget.itemAt(pos)
         if not item:
             return
-        memo_id = item.data(Qt.UserRole)
+            
+        selected_items = self.list_widget.selectedItems()
+        if item not in selected_items:
+            item.setSelected(True)
+            selected_items = [item]
+            
+        memo_ids = [it.data(Qt.UserRole) for it in selected_items]
         
-        # dbから最新のメモ情報を取得
+        # dbからクリックした項目の情報を取得してメニュー状態を決める
         conn = db.get_db_connection()
-        memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_id,)).fetchone()
+        memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_ids[0],)).fetchone()
         conn.close()
         
         if not memo:
@@ -382,34 +394,34 @@ class ManageTab(QWidget):
             }
         """)
 
+        # 複数選択時の編集は最初の1件のみ
         edit_act = menu.addAction("編集...")
         edit_act.triggered.connect(lambda: self.edit_memo(item))
         menu.addSeparator()
 
-        # ステータス変更のアクション
         status = memo["status"]
         
         if status != "active":
             show_act = menu.addAction("🟢 表示中（アクティブ）にする")
-            show_act.triggered.connect(lambda: self.update_memo_status(memo_id, "active"))
+            show_act.triggered.connect(lambda: self.update_memo_status(memo_ids, "active"))
             
         if status != "hidden":
             hide_act = menu.addAction("👁️ 一時非表示にする")
-            hide_act.triggered.connect(lambda: self.update_memo_status(memo_id, "hidden"))
+            hide_act.triggered.connect(lambda: self.update_memo_status(memo_ids, "hidden"))
             
         snooze_act = menu.addAction("💤 明日9時まで表示（以降非表示）")
-        snooze_act.triggered.connect(lambda: self.snooze_to_tomorrow(memo_id))
+        snooze_act.triggered.connect(lambda: self.snooze_to_tomorrow(memo_ids))
 
         if status != "completed":
             complete_act = menu.addAction("⚪ 完了にする")
-            complete_act.triggered.connect(lambda: self.update_memo_status(memo_id, "completed"))
+            complete_act.triggered.connect(lambda: self.update_memo_status(memo_ids, "completed"))
         else:
             reactivate_act = menu.addAction("🟢 未完了に戻す")
-            reactivate_act.triggered.connect(lambda: self.update_memo_status(memo_id, "active"))
+            reactivate_act.triggered.connect(lambda: self.update_memo_status(memo_ids, "active"))
 
         if status != "archived":
             archive_act = menu.addAction("📦 アーカイブする")
-            archive_act.triggered.connect(lambda: self.update_memo_status(memo_id, "archived"))
+            archive_act.triggered.connect(lambda: self.update_memo_status(memo_ids, "archived"))
 
         menu.addSeparator()
         delete_act = menu.addAction("❌ 削除")
@@ -417,69 +429,99 @@ class ManageTab(QWidget):
 
         menu.exec(self.list_widget.mapToGlobal(pos))
 
-    def update_memo_status(self, memo_id, new_status):
-        if new_status == "active":
-            # アクティブにする場合は、スヌーズ等も解除して即座に表示されるようにする
-            db.update_memo(memo_id, status="active", reminder_status="notified")
-        else:
-            db.update_memo(memo_id, status=new_status)
+    def update_memo_status(self, memo_ids, new_status):
+        if isinstance(memo_ids, int):
+            memo_ids = [memo_ids]
+            
+        for memo_id in memo_ids:
+            if new_status == "active":
+                # アクティブにする場合は、スヌーズ等も解除して即座に表示されるようにする
+                db.update_memo(memo_id, status="active", reminder_status="notified")
+            else:
+                db.update_memo(memo_id, status=new_status)
         self.load_data()
         self.data_changed.emit()
 
-    def snooze_to_tomorrow(self, memo_id):
+    def snooze_to_tomorrow(self, memo_ids):
+        if isinstance(memo_ids, int):
+            memo_ids = [memo_ids]
+            
         from datetime import datetime, timedelta
         # 明日の午前9時
         tomorrow_9am = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-        db.update_memo(memo_id, status="active", reminder_at=tomorrow_9am.isoformat(), reminder_status="pending", reminded_at=None)
+        
+        for memo_id in memo_ids:
+            db.update_memo(memo_id, status="active", reminder_at=tomorrow_9am.isoformat(), reminder_status="pending", reminded_at=None)
         self.load_data()
         self.data_changed.emit()
 
     def toggle_complete(self):
-        item = self.list_widget.currentItem()
-        if not item:
-            return
-        memo_id = item.data(Qt.UserRole)
-        
-        conn = db.get_db_connection()
-        memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_id,)).fetchone()
-        conn.close()
-        
-        if not memo:
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
             return
             
-        new_status = "active" if memo["status"] == "completed" else "completed"
-        self.update_memo_status(memo_id, new_status)
+        conn = db.get_db_connection()
+        for item in selected_items:
+            memo_id = item.data(Qt.UserRole)
+            memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_id,)).fetchone()
+            if memo:
+                new_status = "active" if memo["status"] == "completed" else "completed"
+                if new_status == "active":
+                    db.update_memo(memo_id, status="active", reminder_status="notified")
+                else:
+                    db.update_memo(memo_id, status="completed")
+        conn.close()
+        
+        self.load_data()
+        self.data_changed.emit()
 
     def delete_memo(self):
-        item = self.list_widget.currentItem()
-        if not item:
-            return
-        memo_id = item.data(Qt.UserRole)
-        
-        conn = db.get_db_connection()
-        memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_id,)).fetchone()
-        conn.close()
-        
-        if not memo:
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
             return
             
-        if memo["status"] == "deleted":
-            # 既に削除済みの場合は完全にDBから削除
+        logical_deletes = []
+        physical_deletes = []
+        
+        conn = db.get_db_connection()
+        for item in selected_items:
+            memo_id = item.data(Qt.UserRole)
+            memo = conn.execute("SELECT status FROM memos WHERE id = ?", (memo_id,)).fetchone()
+            if memo:
+                if memo["status"] == "deleted":
+                    physical_deletes.append(memo_id)
+                else:
+                    logical_deletes.append(memo_id)
+        conn.close()
+        
+        if logical_deletes:
+            for memo_id in logical_deletes:
+                db.update_memo(memo_id, status="deleted")
+                
+        if physical_deletes:
             reply = QMessageBox.question(
-                self, "完全削除", "このメモをデータベースから完全に消去しますか？",
+                self, "完全削除", f"選択された {len(physical_deletes)} 件の削除済みメモをデータベースから完全に消去しますか？",
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
                 conn = db.get_db_connection()
-                conn.execute("DELETE FROM memos WHERE id = ?", (memo_id,))
+                for memo_id in physical_deletes:
+                    conn.execute("DELETE FROM memos WHERE id = ?", (memo_id,))
                 conn.commit()
                 conn.close()
-        else:
-            # 論理削除
-            db.update_memo(memo_id, status="deleted")
-            
+                
         self.load_data()
         self.data_changed.emit()
+
+    def clear_all_memos_tab(self):
+        reply = QMessageBox.question(
+            self, "全メモの削除", "現在登録されているすべてのメモを削除（ゴミ箱へ移動）しますか？\n（削除されたメモはフィルターで「削除済」を選択して確認できます）",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            db.clear_all_memos(physical=False)
+            self.load_data()
+            self.data_changed.emit()
 
 
 class SettingsTab(QWidget):
