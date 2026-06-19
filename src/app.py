@@ -374,10 +374,6 @@ class StickyNotesApp:
             self.manage_window.wallpaper_refresh_requested.connect(self.refresh_wallpaper)
             self.manage_window.overlay_toggle_requested.connect(self.toggle_overlay_editing)
             self.manage_window.settings_tab.config_changed.connect(self.handle_config_changed)
-
-    def handle_config_changed(self):
-        """設定が変更された際に呼び出されます。ホットキーの再起動などを行います。"""
-        self.setup_hotkey()
             
         # 管理画面表示時に現在の編集モード状態を反映
         self.manage_window.edit_mode_btn.setChecked(self.overlay_editing_active)
@@ -390,6 +386,10 @@ class StickyNotesApp:
             
         self.manage_window.show()
         self.manage_window.activateWindow()
+
+    def handle_config_changed(self):
+        """設定が変更された際に呼び出されます。ホットキーの再起動などを行います。"""
+        self.setup_hotkey()
 
     def refresh_wallpaper(self):
         """壁紙の再合成および再生成、オーバーレイ上の付箋の再ロードを行います。"""
