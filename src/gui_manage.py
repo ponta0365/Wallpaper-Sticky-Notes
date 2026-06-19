@@ -645,31 +645,44 @@ class SettingsTab(QWidget):
         self.load_settings()
 
     def load_settings(self):
-        # 表示モード
-        mode = db.get_setting("display_mode", "hybrid")
-        mode_idx = 0 if mode == "hybrid" else 1 if mode == "wallpaper" else 2
-        self.mode_combo.setCurrentIndex(mode_idx)
-
-        # 配置ルール
-        layout_dir = db.get_setting("layout_direction", "diagonal")
-        dir_map = {"diagonal": 0, "vertical": 1, "horizontal": 2, "from_right": 3, "from_left": 4}
-        self.layout_combo.setCurrentIndex(dir_map.get(layout_dir, 0))
-
-        # ホットキー
-        self.hotkey_edit.setText(db.get_setting("hotkey", "Ctrl+Alt+N"))
-
-        # デフォルトカラー
-        color_hex = db.get_setting("default_note_color", "#FFFFC8")
-        self.color_preview.setStyleSheet(f"background-color: {color_hex}; border: 1px solid #555; border-radius: 4px;")
-
-        # スタートアップ
-        startup = db.get_setting("startup_enabled", False)
-        self.startup_check.setChecked(startup)
+        self.mode_combo.blockSignals(True)
+        self.layout_combo.blockSignals(True)
+        self.hotkey_edit.blockSignals(True)
+        self.startup_check.blockSignals(True)
+        self.startup_method_combo.blockSignals(True)
         
-        # スタートアップの登録方法
-        method = db.get_setting("startup_method", "registry")
-        self.startup_method_combo.setCurrentIndex(0 if method == "registry" else 1)
-        self.startup_method_combo.setEnabled(startup)
+        try:
+            # 表示モード
+            mode = db.get_setting("display_mode", "hybrid")
+            mode_idx = 0 if mode == "hybrid" else 1 if mode == "wallpaper" else 2
+            self.mode_combo.setCurrentIndex(mode_idx)
+
+            # 配置ルール
+            layout_dir = db.get_setting("layout_direction", "diagonal")
+            dir_map = {"diagonal": 0, "vertical": 1, "horizontal": 2, "from_right": 3, "from_left": 4}
+            self.layout_combo.setCurrentIndex(dir_map.get(layout_dir, 0))
+
+            # ホットキー
+            self.hotkey_edit.setText(db.get_setting("hotkey", "Ctrl+Alt+N"))
+
+            # デフォルトカラー
+            color_hex = db.get_setting("default_note_color", "#FFFFC8")
+            self.color_preview.setStyleSheet(f"background-color: {color_hex}; border: 1px solid #555; border-radius: 4px;")
+
+            # スタートアップ
+            startup = db.get_setting("startup_enabled", False)
+            self.startup_check.setChecked(startup)
+            
+            # スタートアップの登録方法
+            method = db.get_setting("startup_method", "registry")
+            self.startup_method_combo.setCurrentIndex(0 if method == "registry" else 1)
+            self.startup_method_combo.setEnabled(startup)
+        finally:
+            self.mode_combo.blockSignals(False)
+            self.layout_combo.blockSignals(False)
+            self.hotkey_edit.blockSignals(False)
+            self.startup_check.blockSignals(False)
+            self.startup_method_combo.blockSignals(False)
 
     def save_settings(self):
         # 表示モードの保存
@@ -911,7 +924,7 @@ class ManageWindow(QWidget):
             # 編集が終わったら、配置を壁紙に反映
             self.wallpaper_refresh_requested.emit()
 
-    def show_event(self, event):
+    def showEvent(self, event):
         """表示されるたびにデータを再ロード。"""
         super().showEvent(event)
         self.manage_tab.load_data()
