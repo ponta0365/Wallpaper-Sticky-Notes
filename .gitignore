@@ -58,3 +58,7 @@ Thumbs.db
 EHthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Local logs
+app_error.log
+*.log

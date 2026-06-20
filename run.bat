@@ -1,8 +1,7 @@
 @echo off
-:: コンダや別の仮想環境のアクティベートに干渉しないよう安全に仮想環境の pythonw.exe を叩く
+cd /d "%~dp0"
 if exist ".venv\Scripts\pythonw.exe" (
-    start "" ".venv\Scripts\pythonw.exe" -m src.app
+    start "" ".venv\Scripts\pythonw.exe" launch.py
 ) else (
-    echo [エラー] セットアップが完了していません。先に setup.bat を実行してください。
-    pause
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Error 'Virtual environment not found. Please run setup.bat first.'; Read-Host 'Press Enter to exit...'"
 )

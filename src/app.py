@@ -73,6 +73,15 @@ class StickyNotesApp:
         
         # 初回起動時の壁紙反映
         self.refresh_wallpaper()
+        
+        # 起動完了メッセージの表示
+        if hasattr(self, "tray_icon"):
+            self.tray_icon.showMessage(
+                "起動完了",
+                "壁紙付箋アプリが起動しました。\nトレイアイコンまたは Ctrl+Alt+N で操作できます。",
+                QSystemTrayIcon.Information,
+                3000
+            )
 
     # --- トレイアイコン設定 ---
 
